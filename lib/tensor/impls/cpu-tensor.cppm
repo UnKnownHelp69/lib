@@ -1,11 +1,12 @@
 module;
 
+#include <algorithm>
 #include <array>
 #include <concepts>
+#include <execution>
 #include <initializer_list>
 #include <stdexcept>
 #include <type_traits>
-#include <utility>
 #include <vector>
 
 module tensor:cpu;
@@ -24,6 +25,11 @@ class CpuTensor {
 
   static constexpr std::string_view kOutOfRangeError = "tensor index out of range";
 
+  static constexpr std::string_view kInvalidDimsError = "tensor has invalid dimensions for operation";
+
+  using FlatIterator = T*;
+  using ConstFlatIterator = const T*;
+
 public:
   using value_type = T;
   using reference = T&;
@@ -32,8 +38,8 @@ public:
   template <typename... Dims>
     requires kCorrectDimSizes<Dims...>
   explicit CpuTensor(Dims... dims_sizes)
-      : dims_{dims_sizes...}
-      , data_{(dims_sizes * ...)} {}
+      : dims_{static_cast<std::size_t>(dims_sizes)...}
+      , data_((dims_sizes * ...)) {}
 
   CpuTensor(std::initializer_list<T> initializer_list)
       : dims_{{1}}
@@ -74,7 +80,41 @@ public:
     return self.AtFlat(self.ComposeFlatIndex(indexes...));
   }
 
+  CpuTensor& operator+=(const CpuTensor& other) & {
+    if (!IsEqualDims(other)) {
+      throw std::invalid_argument(kInvalidDimsError.data());
+    }
+
+    std::transform(
+        std::execution::par_unseq,
+        FlatBegin(),
+        FlatEnd(),
+        other.FlatBegin(),
+        FlatBegin(),
+        [](T lhs, T rhs) {
+          return lhs + rhs;
+        }
+    );
+
+    return *this;
+  }
+
+  template <typename U> requires std::is_arithmetic_v<U>
+  friend bool operator==(const CpuTensor<U>& lhs, const CpuTensor<U>& rhs) noexcept;
+
 private:
+  auto FlatBegin(this auto&& self) noexcept {
+    return self.data_.data();
+  }
+
+  auto FlatEnd(this auto&& self) noexcept {
+    return self.FlatBegin() + self.FlatSize();
+  }
+
+  constexpr bool IsEqualDims(const CpuTensor& other) const noexcept {
+    return dims_ == other.dims_;
+  }
+
   constexpr decltype(auto) AtFlat(this auto&& self, std::size_t flat_index) {
     if (flat_index >= self.FlatSize()) {
       throw std::out_of_range(kOutOfRangeError.data());
@@ -93,7 +133,7 @@ private:
       throw std::invalid_argument(kInvalidIndexesCountError.data());
     }
 
-    std::array<std::size_t, sizeof...(Indexes)> index_arr{std::size_t{indexes}...};
+    std::array<std::size_t, sizeof...(Indexes)> index_arr{static_cast<std::size_t>(indexes)...};
     std::size_t flat_index = 0;
     for (std::size_t i = 0; i < rank(); ++i) {
       flat_index = (flat_index * extend(i)) + index_arr[i];
@@ -104,3 +144,12 @@ private:
   std::vector<std::size_t> dims_;
   std::vector<T> data_;
 };
+
+template <typename T> requires std::is_arithmetic_v<T>
+bool operator==(const CpuTensor<T>& lhs, const CpuTensor<T>& rhs) noexcept {
+  if (!lhs.IsEqualDims(rhs)) {
+    return false;
+  }
+
+  return std::equal(lhs.FlatBegin(), lhs.FlatEnd(), rhs.FlatBegin());
+}
