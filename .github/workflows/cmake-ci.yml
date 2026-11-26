@@ -17,7 +17,7 @@ jobs:
         toolchain:
           # TODO configure clang
           - os: ubuntu-24.04
-            compiler: g++14
+            compiler: g++-14
 
           - os: windows
             compiler: cl
