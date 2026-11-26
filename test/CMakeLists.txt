@@ -12,3 +12,6 @@ FetchContent_MakeAvailable(googletest)
 add_executable(ml-lib-tests smoke-test.cpp)
 
 target_link_libraries(ml-lib-tests PRIVATE GTest::gtest_main GTest::gmock ml-lib)
+
+include(GoogleTest)
+gtest_discover_tests(ml-lib-tests)
