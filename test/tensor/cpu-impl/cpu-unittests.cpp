@@ -4,6 +4,7 @@ module;
 #include <gtest/gtest.h>
 
 #include <complex>
+#include <concepts>
 #include <format>
 #include <stdexcept>
 #include <string>
@@ -13,8 +14,38 @@ module tensor;
 
 import :cpu;
 
+namespace {
+
 constexpr std::string_view kInvalidDimsSizeError =
     "all nested array must have same size (ragged tensors not supported)";
+
+constexpr std::string_view kInvalidIndexesCountError = "index count is invalid";
+
+constexpr std::string_view kOutOfRangeError = "tensor index out of range";
+
+template <typename Indexer>
+void CheckIndexing(Indexer indexer) {
+  CpuTensor tensor({{1, 2}, {3, 4}});
+
+  static_assert(std::same_as<decltype(std::invoke(indexer, tensor, 0, 0)), int&>);
+  static_assert(std::same_as<decltype(std::invoke(indexer, std::as_const(tensor), 0, 0)), const int&>);
+
+  EXPECT_THAT(
+      [&]() {
+        std::invoke(indexer, tensor, 0);
+      },
+      testing::ThrowsMessage<std::invalid_argument>(testing::StrEq(kInvalidIndexesCountError.data()))
+  );
+
+  EXPECT_THAT(
+      [&]() {
+        std::invoke(indexer, tensor, 2, 2);
+      },
+      testing::ThrowsMessage<std::out_of_range>(testing::StrEq(kOutOfRangeError.data()))
+  );
+}
+
+} // namespace
 
 TEST(CpuTensorTest, InitializerListCtor) {
   {
@@ -49,4 +80,16 @@ TEST(CpuTensorTest, InitializerListCtor) {
         testing::ThrowsMessage<std::invalid_argument>(testing::StrEq(kInvalidDimsSizeError.data()))
     );
   }
+}
+
+TEST(CpuTensorTest, IndexationTest) {
+  CpuTensor tensor({{1, 2}, {3, 4}});
+
+  CheckIndexing([](auto&& tensor, auto... indexes) -> decltype(auto) {
+    return tensor[indexes...];
+  });
+
+  CheckIndexing([](auto&& tensor, auto... indexes) -> decltype(auto) {
+    return tensor.at(indexes...);
+  });
 }
