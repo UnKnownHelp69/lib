@@ -1,0 +1,1 @@
+add_executable(ml-lib-tests cpu-impl/cpu-unittests.cpp)
